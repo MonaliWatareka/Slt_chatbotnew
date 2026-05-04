@@ -10,13 +10,12 @@ def build_knowledge_base(model="llama3.2"):
     if not os.path.exists(KB_FOLDER):
         os.makedirs(KB_FOLDER)
         raise FileNotFoundError(
-            f"Knowledge base folder created at {KB_FOLDER}. "
-            "Please add PDF files and try again."
+            f"Folder created at {KB_FOLDER}. Add SLT PDF files and try again."
         )
 
     pdf_files = [f for f in os.listdir(KB_FOLDER) if f.lower().endswith(".pdf")]
     if not pdf_files:
-        raise ValueError(f"No PDF files found in {KB_FOLDER}. Please add PDFs first.")
+        raise ValueError(f"No PDFs found in {KB_FOLDER}.")
 
     all_chunks = []
     for filename in pdf_files:
@@ -28,7 +27,6 @@ def build_knowledge_base(model="llama3.2"):
     print(f"[KB] Total chunks: {len(all_chunks)}")
     vs = create_vectorstore(all_chunks, model=model)
     save_vectorstore(vs, KB_INDEX)
-    print("[KB] Knowledge base saved!")
     return vs
 
 
@@ -36,10 +34,9 @@ def load_knowledge_base(model="llama3.2"):
     if os.path.exists(KB_INDEX):
         try:
             vs = load_vectorstore(KB_INDEX)
-            print("[KB] Knowledge base loaded from disk.")
+            print("[KB] Knowledge base loaded.")
             return vs
         except Exception as e:
-            print(f"[KB] Failed to load knowledge base: {e}")
+            print(f"[KB] Load error: {e}")
             return None
-    print("[KB] No saved knowledge base found.")
     return None

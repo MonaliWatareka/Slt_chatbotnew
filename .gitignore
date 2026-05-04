@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+env/
+
+# Data & indexes (don't push to GitHub — can be large)
+faiss_index/
+*.pdf
+*.xlsx
+*.xls
+*.csv
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Pip cache
+pip-tmp/
+pip-cache/
+
+# OS
+.DS_Store
+Thumbs.db
+__init__.py
+kb_faiss_index/index.pkl
+kb_faiss_index/index.faiss
