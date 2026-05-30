@@ -18,7 +18,6 @@ Question: {question}
 Answer:""",
 )
 
-
 def get_answer(question: str, vectorstore, model: str = "llama3.2") -> str:
     llm       = OllamaLLM(model=model, temperature=0.1)
     retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 5})

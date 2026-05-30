@@ -1,17 +1,14 @@
 import os
 from rag.pdf_loader import load_and_split_pdf
-from rag.embedder import create_vectorstore, save_vectorstore, load_vectorstore
+from rag.embedder   import create_vectorstore, save_vectorstore, load_vectorstore
 
 KB_FOLDER = "F:/Slt_chatbotnew/knowledge_base"
 KB_INDEX  = "F:/Slt_chatbotnew/kb_faiss_index"
 
-
 def build_knowledge_base(model="llama3.2"):
     if not os.path.exists(KB_FOLDER):
         os.makedirs(KB_FOLDER)
-        raise FileNotFoundError(
-            f"Folder created at {KB_FOLDER}. Add SLT PDF files and try again."
-        )
+        raise FileNotFoundError(f"Add SLT PDFs to {KB_FOLDER} and try again.")
 
     pdf_files = [f for f in os.listdir(KB_FOLDER) if f.lower().endswith(".pdf")]
     if not pdf_files:
@@ -19,24 +16,18 @@ def build_knowledge_base(model="llama3.2"):
 
     all_chunks = []
     for filename in pdf_files:
-        path   = os.path.join(KB_FOLDER, filename)
-        chunks = load_and_split_pdf(path)
+        chunks = load_and_split_pdf(os.path.join(KB_FOLDER, filename))
         all_chunks.extend(chunks)
-        print(f"[KB] Loaded: {filename} → {len(chunks)} chunks")
+        print(f"[KB] {filename} → {len(chunks)} chunks")
 
-    print(f"[KB] Total chunks: {len(all_chunks)}")
     vs = create_vectorstore(all_chunks, model=model)
     save_vectorstore(vs, KB_INDEX)
     return vs
 
-
 def load_knowledge_base(model="llama3.2"):
     if os.path.exists(KB_INDEX):
         try:
-            vs = load_vectorstore(KB_INDEX)
-            print("[KB] Knowledge base loaded.")
-            return vs
+            return load_vectorstore(KB_INDEX)
         except Exception as e:
             print(f"[KB] Load error: {e}")
-            return None
     return None
