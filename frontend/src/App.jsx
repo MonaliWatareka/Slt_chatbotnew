@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import Plot from "react-plotly.js";
 
 const API        = "http://localhost:8000";
@@ -15,7 +16,6 @@ const INTENT_COLORS = {
   flow:  { bg: "#fdfde8", border: "#f39c12", label: "🎯 Guided Flow" },
 };
 
-// ── Reusable SLT Logo component ────────────────────────────────
 function SltLogo({ size = 42, style = {} }) {
   const [err, setErr] = useState(false);
   return (
@@ -48,6 +48,7 @@ export default function App() {
   const [sidebarOpen,  setSidebarOpen]  = useState(true);
   const [recording,    setRecording]    = useState(false);
   const [dragOver,     setDragOver]     = useState(null);
+  const [toast,        setToast]        = useState(null);
 
   const messagesEndRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -85,7 +86,6 @@ export default function App() {
     setInput("");
     setMessages(prev => [...prev, { role: "user", content: msg, id: Date.now() }]);
     setLoading(true);
-
     try {
       const res  = await axios.post(`${API}/chat`, {
         session_id: SESSION_ID, message: msg, model, vision_model: visionModel,
@@ -93,12 +93,9 @@ export default function App() {
       const data = res.data;
       setActiveFlow(data.active_flow || null);
       setMessages(prev => [...prev, {
-        role:    "assistant",
-        content: data.response,
-        intent:  data.intent,
-        figure:  data.figure ? JSON.parse(data.figure) : null,
-        sources: data.sources,
-        id:      Date.now() + 1,
+        role: "assistant", content: data.response, intent: data.intent,
+        figure: data.figure ? JSON.parse(data.figure) : null,
+        sources: data.sources, id: Date.now() + 1,
       }]);
       await fetchSessionInfo();
     } catch {
@@ -150,17 +147,31 @@ export default function App() {
   const addSys = (text) =>
     setMessages(prev => [...prev, { role: "system", content: text, id: Date.now() }]);
 
+  const showToast = (msg, duration = 3000) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), duration);
+  };
+
   const toggleVoice = () => {
+    const isBrave = navigator.brave !== undefined;
     if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-      alert("Voice not supported. Use Chrome."); return;
+      if (isBrave) {
+        alert("Voice input is blocked in Brave.\n\nFix: Go to brave://settings/privacy and enable Google services.\n\nOr use Google Chrome.");
+      } else {
+        alert("Voice not supported. Use Chrome.");
+      }
+      return;
     }
     if (recording) { recognitionRef.current?.stop(); setRecording(false); return; }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     const r  = new SR();
-    r.lang = "en-US";
+    r.lang = "en-US"; r.interimResults = false; r.continuous = false;
     r.onresult = (e) => { setInput(e.results[0][0].transcript); setRecording(false); };
-    r.onerror  = () => setRecording(false);
-    r.onend    = () => setRecording(false);
+    r.onerror  = (e) => {
+      if (e.error === "not-allowed") alert("Microphone access denied. Allow microphone in browser settings.");
+      setRecording(false);
+    };
+    r.onend = () => setRecording(false);
     recognitionRef.current = r;
     r.start();
     setRecording(true);
@@ -169,16 +180,14 @@ export default function App() {
   const sendFeedback = async (msgId, content, rating) => {
     try {
       await axios.post(`${API}/feedback`, {
-        session_id: SESSION_ID,
-        msg_id:     String(msgId),   // ← convert to string
-        rating,
+        session_id: SESSION_ID, msg_id: String(msgId), rating,
         content: content.slice(0, 100),
       });
-      console.log("Feedback sent:", rating);  // ← debug
-    } catch(e) {
-      console.error("Feedback error:", e);    // ← debug
+      showToast(rating === "up" ? "👍 Thanks for your feedback!" : "👎 Thanks! We'll work to improve.");
+    } catch {
+      showToast("❌ Feedback failed. Please try again.");
     }
-};
+  };
 
   const clearChat = async () => {
     await axios.delete(`${API}/session/${SESSION_ID}`);
@@ -220,8 +229,6 @@ export default function App() {
     <div style={S.app}>
       {/* ── SIDEBAR ───────────────────────────────────────── */}
       <aside style={{ ...S.sidebar, width: sidebarOpen ? 280 : 0, overflow: sidebarOpen ? "auto" : "hidden" }}>
-
-        {/* Logo Header */}
         <div style={S.sidebarHeader}>
           <SltLogo size={44} />
           <div>
@@ -230,7 +237,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Settings */}
         <div style={S.section}>
           <div style={S.secTitle}>⚙️ Settings</div>
           <label style={S.label}>LLM Model</label>
@@ -246,7 +252,6 @@ export default function App() {
           </select>
         </div>
 
-        {/* Knowledge Base */}
         <div style={S.section}>
           <div style={S.secTitle}>🧠 Knowledge Base</div>
           {kbStatus
@@ -259,11 +264,8 @@ export default function App() {
           )}
         </div>
 
-        {/* File Uploads */}
         <div style={S.section}>
           <div style={S.secTitle}>📁 Upload Files</div>
-
-          {/* PDF */}
           <div style={{ ...S.dropZone, borderColor: dragOver === "pdf" ? "#3498db" : "#ddd" }}
             onDragOver={e => { e.preventDefault(); setDragOver("pdf"); }}
             onDragLeave={() => setDragOver(null)}
@@ -278,7 +280,6 @@ export default function App() {
           <input ref={pdfInputRef} type="file" accept=".pdf" multiple hidden
             onChange={e => uploadPdf(e.target.files)} />
 
-          {/* Excel */}
           <div style={{ ...S.dropZone, borderColor: dragOver === "excel" ? "#2ecc71" : "#ddd" }}
             onDragOver={e => { e.preventDefault(); setDragOver("excel"); }}
             onDragLeave={() => setDragOver(null)}
@@ -293,7 +294,6 @@ export default function App() {
           <input ref={excelInputRef} type="file" accept=".xlsx,.xls,.csv" hidden
             onChange={e => uploadExcel(e.target.files[0])} />
 
-          {/* Image */}
           <div style={{ ...S.dropZone, borderColor: dragOver === "image" ? "#e67e22" : "#ddd" }}
             onDragOver={e => { e.preventDefault(); setDragOver("image"); }}
             onDragLeave={() => setDragOver(null)}
@@ -302,26 +302,23 @@ export default function App() {
             <div style={S.dropIcon}>🖼️</div>
             <div style={S.dropText}>Bill / Image</div>
             <div style={S.dropSub}>Drop here or click</div>
-            {imagePreview &&
-              <img src={imagePreview} style={S.imgThumb} alt="preview" />}
+            {imagePreview && <img src={imagePreview} style={S.imgThumb} alt="preview" />}
           </div>
           <input ref={imageInputRef} type="file" accept=".jpg,.jpeg,.png,.webp,.bmp" hidden
             onChange={e => uploadImage(e.target.files[0])} />
         </div>
 
-        {/* Active Context */}
         {sessionInfo && (
           <div style={S.section}>
             <div style={S.secTitle}>📌 Active Context</div>
-            {kbStatus               && <div style={S.ctxItem}>🧠 SLT Knowledge Base</div>}
-            {sessionInfo.has_pdf    && <div style={S.ctxItem}>📄 {sessionInfo.pdf_names?.join(", ")}</div>}
-            {sessionInfo.has_excel  && <div style={S.ctxItem}>📊 {sessionInfo.excel_name}</div>}
-            {sessionInfo.has_image  && <div style={S.ctxItem}>🖼️ {sessionInfo.image_name}</div>}
+            {kbStatus              && <div style={S.ctxItem}>🧠 SLT Knowledge Base</div>}
+            {sessionInfo.has_pdf   && <div style={S.ctxItem}>📄 {sessionInfo.pdf_names?.join(", ")}</div>}
+            {sessionInfo.has_excel && <div style={S.ctxItem}>📊 {sessionInfo.excel_name}</div>}
+            {sessionInfo.has_image && <div style={S.ctxItem}>🖼️ {sessionInfo.image_name}</div>}
             {activeFlow && <div style={S.flowBadge}>🎯 Guided flow active</div>}
           </div>
         )}
 
-        {/* Actions */}
         <div style={S.section}>
           <div style={{ display: "flex", gap: 8 }}>
             <button style={S.btnDanger} onClick={clearChat}>🗑️ Clear</button>
@@ -334,11 +331,8 @@ export default function App() {
 
       {/* ── MAIN AREA ─────────────────────────────────────── */}
       <main style={S.main}>
-
-        {/* Top bar */}
         <div style={S.topBar}>
           <button style={S.menuBtn} onClick={() => setSidebarOpen(o => !o)}>☰</button>
-          {/* SLT logo in top bar */}
           <SltLogo size={32} style={{ marginRight: 4 }} />
           <div style={S.topTitle}>SLT Insight AI</div>
           <div style={S.topStatus}>
@@ -347,11 +341,9 @@ export default function App() {
           </div>
         </div>
 
-        {/* Messages */}
         <div style={S.messages}>
           {messages.length === 0 && (
             <div style={S.welcome}>
-              {/* SLT logo on welcome screen */}
               <SltLogo size={90} style={{
                 margin: "0 auto 24px",
                 boxShadow: "0 10px 30px rgba(0,114,255,0.2)",
@@ -372,7 +364,6 @@ export default function App() {
               ...S.msgRow,
               justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
             }}>
-              {/* Bot avatar — SLT logo */}
               {msg.role === "assistant" && <SltLogo size={32} />}
               {msg.role === "system"    && <div style={S.avatarSys}>⚙️</div>}
 
@@ -382,7 +373,6 @@ export default function App() {
                 ...(msg.role === "system"    ? S.bubbleSystem : {}),
                 ...(msg.role === "assistant" ? S.bubbleBot    : {}),
               }}>
-                {/* Intent badge */}
                 {msg.role === "assistant" && msg.intent && INTENT_COLORS[msg.intent] && (
                   <div style={{
                     ...S.intentBadge,
@@ -393,11 +383,13 @@ export default function App() {
                   </div>
                 )}
 
+                {/* ── ReactMarkdown with remarkGfm for table support ── */}
                 <div style={S.msgContent}>
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {msg.content}
+                  </ReactMarkdown>
                 </div>
 
-                {/* Plotly chart */}
                 {msg.figure && (
                   <div style={S.chartWrap}>
                     <Plot
@@ -415,11 +407,10 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Feedback */}
                 {msg.role === "assistant" && (
                   <div style={S.feedbackRow}>
-                    <button style={S.fbBtn} onClick={() => sendFeedback(msg.id, msg.content, "up")}>👍</button>
-                    <button style={S.fbBtn} onClick={() => sendFeedback(msg.id, msg.content, "down")}>👎</button>
+                    <button style={S.fbBtn} onClick={() => sendFeedback(msg.id, msg.content, "up")} title="Good response">👍</button>
+                    <button style={S.fbBtn} onClick={() => sendFeedback(msg.id, msg.content, "down")} title="Bad response">👎</button>
                   </div>
                 )}
               </div>
@@ -428,7 +419,6 @@ export default function App() {
             </div>
           ))}
 
-          {/* Loading dots */}
           {loading && (
             <div style={{ ...S.msgRow, justifyContent: "flex-start" }}>
               <SltLogo size={32} />
@@ -440,7 +430,6 @@ export default function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input area */}
         <div style={S.inputArea}>
           {activeFlow && (
             <div style={S.flowHint}>🎯 Guided flow active — type your answer below</div>
@@ -448,7 +437,9 @@ export default function App() {
           <div style={S.inputRow}>
             <button
               style={{ ...S.iconBtn, background: recording ? "#fee2e2" : "#f0f4ff" }}
-              onClick={toggleVoice} title="Voice input">
+              onClick={toggleVoice}
+              title={navigator.brave ? "Voice blocked in Brave — use Chrome" : "Voice input"}
+            >
               {recording ? "⏹️" : "🎙️"}
             </button>
             <input
@@ -456,9 +447,7 @@ export default function App() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
-              placeholder={activeFlow
-                ? "Type your answer here..."
-                : "Ask anything about SLT — I'll figure out where to look..."}
+              placeholder={activeFlow ? "Type your answer here..." : "Ask anything about SLT — I'll figure out where to look..."}
               disabled={loading}
             />
             <button style={{ ...S.sendBtn, opacity: loading ? 0.5 : 1 }}
@@ -468,6 +457,9 @@ export default function App() {
           </div>
         </div>
       </main>
+
+      {/* ── Toast popup ─────────────────────────────────── */}
+      {toast && <div style={S.toast}>{toast}</div>}
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono&display=swap');
@@ -485,25 +477,56 @@ export default function App() {
           0%,80%,100% { transform: translateY(0); }
           40%         { transform: translateY(-8px); }
         }
+        @keyframes slideUp {
+          from { opacity: 0; transform: translateY(16px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
         select,input,button { font-family: 'DM Sans', sans-serif; }
         ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         p  { margin: 4px 0; line-height: 1.6; }
         ul,ol { padding-left: 20px; }
-        table { border-collapse: collapse; width: 100%; font-size: 13px; }
-        th,td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; }
-        th { background: #f1f5f9; font-weight: 600; }
+
+        /* ── Table styles — clean and professional ── */
+        table {
+          border-collapse: collapse;
+          width: 100%;
+          font-size: 13px;
+          margin: 12px 0;
+          border-radius: 10px;
+          overflow: hidden;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+        }
+        th {
+          background: linear-gradient(135deg, #0072ff, #00c6ff);
+          color: white;
+          font-weight: 600;
+          padding: 10px 14px;
+          text-align: left;
+          font-size: 12px;
+          letter-spacing: 0.3px;
+        }
+        td {
+          border-bottom: 1px solid #e2e8f0;
+          padding: 9px 14px;
+          color: #1e293b;
+          vertical-align: middle;
+        }
+        tr:last-child td { border-bottom: none; }
+        tr:nth-child(even) td { background: #f8faff; }
+        tr:hover td { background: #f0f4ff; transition: background 0.15s; }
+
         code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-family: 'DM Mono',monospace; font-size: 0.85em; }
         pre  { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 8px; overflow-x: auto; }
         pre code { background: none; color: inherit; }
         strong { font-weight: 600; }
         h1,h2,h3 { margin: 8px 0 4px; line-height: 1.3; }
+        hr { border: none; border-top: 1px solid #e2e8f0; margin: 10px 0; }
       `}</style>
     </div>
   );
 }
 
-// ── Styles ──────────────────────────────────────────────────────
 const S = {
   app:          { display:"flex", height:"100vh", overflow:"hidden", fontFamily:"'DM Sans',sans-serif", background:"#f8faff" },
   sidebar:      { background:"white", borderRight:"1px solid #e8ecf4", display:"flex", flexDirection:"column", transition:"width 0.3s ease", minWidth:0, flexShrink:0 },
@@ -550,11 +573,12 @@ const S = {
   msgContent:   { color:"inherit" },
   chartWrap:    { marginTop:12, borderRadius:10, overflow:"hidden", border:"1px solid #e8ecf4" },
   feedbackRow:  { display:"flex", gap:6, marginTop:10, paddingTop:8, borderTop:"1px solid #f0f2f8" },
-  fbBtn:        { background:"#f8faff", border:"1px solid #e2e8f0", borderRadius:8, padding:"3px 10px", cursor:"pointer", fontSize:14 },
+  fbBtn:        { background:"#f8faff", border:"1px solid #e2e8f0", borderRadius:8, padding:"3px 10px", cursor:"pointer", fontSize:14, transition:"all 0.15s" },
   inputArea:    { padding:"12px 24px 20px", background:"white", borderTop:"1px solid #e8ecf4" },
   flowHint:     { fontSize:12, color:"#854d0e", background:"#fefce8", border:"1px solid #fde047", borderRadius:8, padding:"6px 12px", marginBottom:8, fontWeight:500 },
   inputRow:     { display:"flex", gap:8, alignItems:"center" },
   iconBtn:      { width:40, height:40, borderRadius:10, border:"none", cursor:"pointer", fontSize:18, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
   input:        { flex:1, padding:"11px 16px", borderRadius:12, fontSize:14, border:"1.5px solid #e2e8f0", outline:"none", background:"#f8faff", color:"#1e293b" },
   sendBtn:      { width:44, height:44, borderRadius:12, border:"none", background:"linear-gradient(135deg,#0072ff,#00c6ff)", color:"white", fontSize:18, cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center" },
+  toast:        { position:"fixed", bottom:32, right:32, background:"white", border:"1px solid #e2e8f0", borderRadius:14, padding:"14px 22px", boxShadow:"0 8px 30px rgba(0,0,0,0.12)", fontSize:14, fontWeight:600, color:"#1e293b", zIndex:9999, display:"flex", alignItems:"center", gap:10, animation:"slideUp 0.3s ease" },
 };
