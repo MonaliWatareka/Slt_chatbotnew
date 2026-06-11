@@ -1,6 +1,6 @@
 """
 backend/main.py — FastAPI backend for SLT Insight chatbot
-Updated: Added /logo endpoint to serve sltlogo.png
+Updated: Added /logo2 endpoint for new SLT logo
 Run with: uvicorn main:app --reload --port 8000
 """
 
@@ -34,7 +34,8 @@ app.add_middleware(
 
 sessions: dict = {}
 
-LOGO_PATH = "F:/Slt_chatbotnew/sltlogo.png"
+LOGO_PATH     = "F:/Slt_chatbotnew/sltlogo.png"
+LOGO_NEW_PATH = "F:/Slt_chatbotnew/slt_logo_new.be681e06.png"
 
 def get_session(session_id: str) -> dict:
     if session_id not in sessions:
@@ -78,7 +79,7 @@ class ChatRequest(BaseModel):
 
 class FeedbackRequest(BaseModel):
     session_id: str
-    msg_id:     str    # ← fixed — accepts any id
+    msg_id:     str
     rating:     str
     content:    str
 
@@ -98,9 +99,20 @@ def health():
     return {"status": "ok", "kb_loaded": kb_loaded}
 
 
-# ── Logo endpoint ──────────────────────────────────────────────
+# ── Original logo ──────────────────────────────────────────────
 @app.get("/logo")
 def get_logo():
+    if os.path.exists(LOGO_PATH):
+        return FileResponse(LOGO_PATH, media_type="image/png")
+    raise HTTPException(status_code=404, detail="Logo not found")
+
+
+# ── New logo ───────────────────────────────────────────────────
+@app.get("/logo2")
+def get_logo2():
+    # Try new logo first, fall back to original if not found
+    if os.path.exists(LOGO_NEW_PATH):
+        return FileResponse(LOGO_NEW_PATH, media_type="image/png")
     if os.path.exists(LOGO_PATH):
         return FileResponse(LOGO_PATH, media_type="image/png")
     raise HTTPException(status_code=404, detail="Logo not found")
@@ -240,10 +252,17 @@ def session_status(session_id: str):
 def clear_session(session_id: str):
     if session_id in sessions:
         sessions[session_id] = {
-            "messages": [], "vectorstore": None, "df": None,
-            "pdf_names": [], "excel_name": None, "model": "llama3.2",
-            "vision_model": "llava", "image_file": None, "image_name": None,
-            "active_flow": None, "flow_answers": {},
+            "messages":       [],
+            "vectorstore":    None,
+            "df":             None,
+            "pdf_names":      [],
+            "excel_name":     None,
+            "model":          "llama3.2",
+            "vision_model":   "llava",
+            "image_file":     None,
+            "image_name":     None,
+            "active_flow":    None,
+            "flow_answers":   {},
             "kb_vectorstore": getattr(app.state, "kb_vectorstore", None),
         }
     return {"success": True}
@@ -257,9 +276,9 @@ async def feedback(req: FeedbackRequest):
     row         = [
         datetime.datetime.now().isoformat(),
         req.session_id,
-        str(req.msg_id),    # ← convert to string
+        str(req.msg_id),
         req.rating,
-        req.content[:100].replace("\n", " ")
+        req.content[:100].replace("\n", " "),
     ]
     file_exists = os.path.exists(path)
     with open(path, "a", newline="", encoding="utf-8") as f:
